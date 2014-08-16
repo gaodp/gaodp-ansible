@@ -85,6 +85,12 @@
 
     - name: install upstart script
       template: src=files/init/gga-api.conf dest=/etc/init/gga-api.conf owner=root group=root mode=0644
-
     - name: (re)start gga-api
       service: name=gga-api state=restarted
+
+    - name: install gga-api nginx site
+      copy: src=files/nginx/gga-api.conf dest=/etc/nginx/sites-available/ owner=root group=root mode=0644
+    - name: symlink to sites-enabled
+      file: src=/etc/nginx/sites-available/gga-api.conf dest=/etc/nginx/sites-enabled/gga-api.conf owner=root group=root mode=0644 state=link
+    - name: reload nginx
+      command: nginx -s reload
