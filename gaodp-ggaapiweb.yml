@@ -1,0 +1,90 @@
+---
+
+- hosts: gaodp-ggaapiweb
+  sudo: true
+  vars_prompt:
+    kueuser: "Kue username"
+    kuepass: "Kue password"
+  tasks:
+    - name: iptables flush
+      command: iptables -F
+    - name: iptables | ssh
+      command: iptables -A INPUT -p tcp --dport ssh -j ACCEPT
+    - name: iptables | http
+      command: iptables -A INPUT -p tcp --dport http -j ACCEPT
+    - name: iptables | state = established, related
+      command: iptables -A INPUT -m state --state established,related -j ACCEPT
+    - name: iptables | icmp
+      command: iptables -A INPUT -p icmp -j ACCEPT
+    - name: iptables | lo
+      command: iptables -A INPUT -i lo -j ACCEPT
+    - name: iptables | reject
+      command: iptables -A INPUT -j REJECT
+    - name: iptables-save
+      shell: iptables-save > /etc/iptables.rules
+
+    - name: ip6tables flush
+      command: ip6tables -F
+    - name: ip6tables | ssh
+      command: ip6tables -A INPUT -p tcp --dport ssh -j ACCEPT
+    - name: ip6tables | http
+      command: ip6tables -A INPUT -p tcp --dport http -j ACCEPT
+    - name: ip6tables | state = established, related
+      command: ip6tables -A INPUT -m state --state established,related -j ACCEPT
+    - name: ip6tables | icmp
+      command: ip6tables -A INPUT -p icmpv6 -j ACCEPT
+    - name: ip6tables | lo
+      command: ip6tables -A INPUT -i lo -j ACCEPT
+    - name: ip6tables | reject
+      command: ip6tables -A INPUT -j REJECT
+    - name: ip6tables-save
+      shell: ip6tables-save > /etc/ip6tables.rules
+
+    - name: add mongodb key
+      apt_key: keyserver=hkp://keyserver.ubuntu.com:80 id=7F0CEB10 state=present
+    - name: add mongodb repository
+      apt_repository: repo='deb http://downloads-distro.mongodb.org/repo/ubuntu-upstart dist 10gen' state=present
+    - name: install mongodb
+      apt: name=mongodb-org update_cache=yes state=latest
+    - name: install mongodb config
+      copy: src=files/mongod.conf dest=/etc/mongod.conf
+    - name: start mongodb
+      service: name=mongod state=restarted
+
+    - name: determine mongo replica configuration
+      command: mongo --eval "rs.config()"
+      register: mongorsconfig
+    - name: initiate replica set
+      command: "mongo --eval \"rs.initiate()\""
+      when: mongorsconfig.stdout.find("null") != -1
+
+    - name: install git
+      apt: name=git state=latest
+    - name: install nginx
+      apt: name=nginx state=latest
+    - name: install redis-server
+      apt: name=redis-server state=latest
+    - name: install nodejs sources to apt
+      shell: "curl -sL https://deb.nodesource.com/setup | sudo bash -"
+    - name: install nodejs
+      apt: name=nodejs state=latest
+
+    - name: create /var/www
+      file: path=/var/www state=directory owner=www-data group=www-data
+    - name: create /var/log/gga-api.log
+      file: path=/var/log/gga-api.log state=touch owner=www-data group=www-data
+    - name: set shell for www-data
+      command: chsh -s /bin/bash www-data
+    - name: clone gga-api repo
+      sudo_user: www-data
+      git: repo=https://github.com/gaodp/gga-api.git dest=/var/www/gga-api
+
+    - name: install gga-api dependencies
+      sudo_user: www-data
+      npm: path=/var/www/gga-api
+
+    - name: install upstart script
+      template: src=files/init/gga-api.conf dest=/etc/init/gga-api.conf owner=root group=root mode=0644
+
+    - name: (re)start gga-api
+      service: name=gga-api state=restarted
