@@ -2,43 +2,24 @@
 
 - hosts: gaodp-ggaapiweb
   sudo: true
-  vars_prompt:
-    kueuser: "Kue username"
-    kuepass: "Kue password"
-  tasks:
-    - name: iptables flush
-      command: iptables -F
-    - name: iptables | ssh
-      command: iptables -A INPUT -p tcp --dport ssh -j ACCEPT
-    - name: iptables | http
-      command: iptables -A INPUT -p tcp --dport http -j ACCEPT
-    - name: iptables | state = established, related
-      command: iptables -A INPUT -m state --state established,related -j ACCEPT
-    - name: iptables | icmp
-      command: iptables -A INPUT -p icmp -j ACCEPT
-    - name: iptables | lo
-      command: iptables -A INPUT -i lo -j ACCEPT
-    - name: iptables | reject
-      command: iptables -A INPUT -j REJECT
-    - name: iptables-save
-      shell: iptables-save > /etc/iptables.rules
 
-    - name: ip6tables flush
-      command: ip6tables -F
-    - name: ip6tables | ssh
-      command: ip6tables -A INPUT -p tcp --dport ssh -j ACCEPT
-    - name: ip6tables | http
-      command: ip6tables -A INPUT -p tcp --dport http -j ACCEPT
-    - name: ip6tables | state = established, related
-      command: ip6tables -A INPUT -m state --state established,related -j ACCEPT
-    - name: ip6tables | icmp
-      command: ip6tables -A INPUT -p icmpv6 -j ACCEPT
-    - name: ip6tables | lo
-      command: ip6tables -A INPUT -i lo -j ACCEPT
-    - name: ip6tables | reject
-      command: ip6tables -A INPUT -j REJECT
-    - name: ip6tables-save
-      shell: ip6tables-save > /etc/ip6tables.rules
+  vars_prompt:
+    - name: kueuser
+      prompt: "Kue username"
+      private: false
+
+    - name: kuepass
+      prompt: "Kue password"
+      private: false
+
+    - name: configfirewall
+      prompt: "Configure default firewall settings? (y/n)"
+      default: 'n'
+      private: false
+
+  tasks:
+    - include: gaodp-firewall.yml
+      when: configfirewall == 'y'
 
     - name: add mongodb key
       apt_key: keyserver=hkp://keyserver.ubuntu.com:80 id=7F0CEB10 state=present
@@ -50,13 +31,6 @@
       copy: src=files/mongod.conf dest=/etc/mongod.conf
     - name: start mongodb
       service: name=mongod state=restarted
-
-    - name: determine mongo replica configuration
-      command: mongo --eval "rs.config()"
-      register: mongorsconfig
-    - name: initiate replica set
-      command: "mongo --eval \"rs.initiate()\""
-      when: mongorsconfig.stdout.find("null") != -1
 
     - name: install git
       apt: name=git state=latest
@@ -94,3 +68,16 @@
       file: src=/etc/nginx/sites-available/gga-api.conf dest=/etc/nginx/sites-enabled/gga-api.conf owner=root group=root mode=0644 state=link
     - name: reload nginx
       command: nginx -s reload
+
+    - name: Add sessions cron
+      cron: 'name="sessions" job="curl http://localhost:8091/trigger/sessions" minute=0 hour="4,16" month="1-4"'
+    - name: Add members cron
+      cron: 'name="members" job="curl http://localhost:8091/trigger/members/session/current" minute=5 hour="4,16" month="1-4"'
+    - name: Add committees cron
+      cron: 'name="committees" job="curl http://localhost:8091/trigger/committees/session/current" minute=10 hour="4,16" month="1-4"'
+    - name: Add legislation cron
+      cron: 'name="legislation" job="curl http://localhost:8091/trigger/legislation/session/current" minute=15 hour="4,16" month="1-4"'
+    - name: Add votes cron
+      cron: 'name="votes" job="curl http://localhost:8091/trigger/votes/session/current" minute=30 hour="4,16" month="1-4"'
+    - name: Add legislation detail cron
+      cron: 'name="legislationDetail" job="curl http://localhost:8091/trigger/legislationDetail/session/current" minute=45 hour="4,16" month="1-4"'
